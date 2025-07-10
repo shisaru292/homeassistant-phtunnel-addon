@@ -2,7 +2,7 @@
 name: "PHTunnel"
 version: 1.0.0
 slug: phtunnel_addon
-description: "Add-on version of PHTunnel(Oary hsk client)."
+description: "Add-on version of PHTunnel(Oray HSK client)."
 url: "https://github.com/shisaru292/homeassistant-phtunnel-addon"
 
 arch:
