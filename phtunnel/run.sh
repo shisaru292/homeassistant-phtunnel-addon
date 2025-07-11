@@ -28,4 +28,4 @@ bashio::log.info "Starting the main application..."
 # 3. Start the application with log output redirected to named pipe
 #    Use /data/ path for persistence
 #    Note: Program must run in foreground (do not use &)
-exec /usr/bin/phtunnel --log $LOG_PIPE --config /data/phtunnel.json
+exec /usr/bin/phtunnel --log $LOG_PIPE --config /data/phtunnel.json --rpc
