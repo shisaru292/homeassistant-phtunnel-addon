@@ -14,9 +14,9 @@ mkfifo $LOG_PIPE
 # 2. Read logs from pipe in background and send to bashio
 while read -r line; do
   # Simple log level classification based on content
-  if [[ "$line" == *"ERROR:"* ]]; then
+  if [[ "$line" == *"ERROR:"* || "$line" == *"[ERRR]"* ]]; then
     bashio::log.error "${line}"
-  elif [[ "$line" == *"WARNING:"* ]]; then
+  elif [[ "$line" == *"WARNING:"* || "$line" == *"[WARN]"* ]]; then
     bashio::log.warning "${line}"
   else
     bashio::log.info "${line}"
