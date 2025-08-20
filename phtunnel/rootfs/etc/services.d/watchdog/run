@@ -1,0 +1,84 @@
+#!/usr/bin/with-contenv bashio
+
+# Helper functions for logging
+function log_info() {
+  bashio::log.info "Watchdog: $*"
+}
+function log_error() {
+  bashio::log.error "Watchdog: $*"
+}
+function log_warning() {
+  bashio::log.warning "Watchdog: $*"
+}
+
+# Add restart_addon function
+function restart_addon() {
+  log_info "Attempting to restart this add-on..."
+
+  if [[ -z "${SUPERVISOR_TOKEN}" ]]; then
+    log_error "SUPERVISOR_TOKEN environment variable not set. Cannot restart."
+    return 1
+  fi
+
+  local api_url="http://supervisor/addons/self/restart"
+  log_info "Calling Supervisor API at: ${api_url}"
+
+  curl -sSL -X POST \
+    -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
+    -H "Content-Type: application/json" \
+    "${api_url}"
+}
+
+log_info "Starting watchdog..."
+
+# Time configuration variables
+CURL_TIMEOUT=5
+WAIT_READY_SLEEP=10
+WATCHDOG_LOOP_SLEEP=30
+
+# Wait for the service to start
+while true; do
+  read_resp=$(curl -m $CURL_TIMEOUT -s -o /tmp/curl_result -w "%{http_code}" http://127.0.0.1:16062/ora_service/getsn)
+  curl_exit=$?
+  http_code="$read_resp"
+  response=$(cat /tmp/curl_result)
+
+  # Check if the response is valid JSON
+  if [[ "$http_code" == "200" && "$curl_exit" == "0" ]]; then
+    if [[ "$response" =~ \{.*\} ]]; then
+      log_info "phtunnel API is up and returned valid JSON. Watchdog starting."
+      break
+    fi
+  fi
+
+  log_info "Waiting for phtunnel API to be ready..."
+  sleep $WAIT_READY_SLEEP
+done
+
+# Watchdog loop
+while true; do
+  sleep $WATCHDOG_LOOP_SLEEP
+  log_info "Checking phtunnel API status..."
+  read_resp=$(curl -m $CURL_TIMEOUT -s -o /tmp/curl_result -w "%{http_code}" http://127.0.0.1:16062/ora_service/getsn)
+  curl_exit=$?
+  http_code="$read_resp"
+  response=$(cat /tmp/curl_result)
+
+  # If curl exit code is 28 (timeout) or non-zero, restart
+  if [[ "$curl_exit" == "28" ]]; then
+    log_error "curl timeout detected (exit code 28). Restarting add-on."
+    restart_addon
+    exit 1
+  elif [[ "$curl_exit" != "0" ]]; then
+    log_error "curl failed with exit code $curl_exit. Restarting add-on."
+    restart_addon
+    exit 1
+  fi
+
+  # Optionally, check for non-200 HTTP code
+  if [[ "$http_code" == "200" ]]; then
+    log_info "OK."
+  else
+    log_warning "Unexpected HTTP code $http_code from phtunnel API."
+  fi
+done

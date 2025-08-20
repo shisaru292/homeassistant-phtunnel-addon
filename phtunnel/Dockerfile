@@ -9,7 +9,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Copy local .deb file to /tmp/ directory in the image
 COPY rootfs/ /
 COPY run.sh /
-RUN chmod +x /run.sh
+RUN chmod +x /etc/services.d/watchdog/run && \
+    chmod +x /run.sh
 
 # Step 3: Install .deb package and its dependencies
 # RUN instruction executes commands inside the image

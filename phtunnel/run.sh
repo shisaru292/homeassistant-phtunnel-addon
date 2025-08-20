@@ -1,4 +1,5 @@
 #!/usr/bin/with-contenv bashio
+
 # Timezone configuration
 bashio::log.info "Setting up timezone($TZ)..."
 if [ -f /etc/localtime ]; then
