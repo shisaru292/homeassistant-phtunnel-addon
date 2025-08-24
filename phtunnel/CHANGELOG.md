@@ -1,3 +1,6 @@
+## 1.1.1
+- Improve error handling in watchdog script: bashio use `set -e` to stop on errors.
+
 ## 1.1.0
 - Add the watchdog service(#1): Checks phtunnel local rpc every 30 seconds, restarts addon if unresponsive. (No checking with response content.)
 

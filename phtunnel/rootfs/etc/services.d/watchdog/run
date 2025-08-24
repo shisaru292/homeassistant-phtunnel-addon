@@ -23,10 +23,11 @@ function restart_addon() {
   local api_url="http://supervisor/addons/self/restart"
   log_info "Calling Supervisor API at: ${api_url}"
 
+  # Call the API. We don't need to check the result here as the addon will restart anyway.
   curl -sSL -X POST \
     -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
     -H "Content-Type: application/json" \
-    "${api_url}"
+    "${api_url}" > /dev/null
 }
 
 log_info "Starting watchdog..."
@@ -37,48 +38,69 @@ WAIT_READY_SLEEP=10
 WATCHDOG_LOOP_SLEEP=30
 
 # Wait for the service to start
+log_info "Waiting for phtunnel API to be ready..."
 while true; do
-  read_resp=$(curl -m $CURL_TIMEOUT -s -o /tmp/curl_result -w "%{http_code}" http://127.0.0.1:16062/ora_service/getsn)
-  curl_exit=$?
-  http_code="$read_resp"
-  response=$(cat /tmp/curl_result)
+  response=""
+  http_code=""
+  curl_exit_code=0
 
-  # Check if the response is valid JSON
-  if [[ "$http_code" == "200" && "$curl_exit" == "0" ]]; then
-    if [[ "$response" =~ \{.*\} ]]; then
-      log_info "phtunnel API is up and returned valid JSON. Watchdog starting."
-      break
+  # Use if/else to safely execute curl and capture all outcomes
+  if response=$(curl -m "$CURL_TIMEOUT" -s -w "%{http_code}" http://127.0.0.1:16062/ora_service/getsn); then
+    # curl command succeeded (exit code 0)
+    http_code="${response: -3}"
+    response_body="${response::-3}"
+    
+    if [[ "$http_code" == "200" && "$response_body" =~ \{.*\} ]]; then
+      log_info "phtunnel API is up and returned valid JSON. Watchdog starting main loop."
+      break # Success, exit the wait loop
+    else
+      log_warning "API is reachable but returned HTTP $http_code or invalid JSON. Retrying in $WAIT_READY_SLEEP seconds..."
     fi
+  else
+    curl_exit_code=$?
+    log_warning "phtunnel API not ready yet (curl failed with exit code: $curl_exit_code). Retrying in $WAIT_READY_SLEEP seconds..."
   fi
 
-  log_info "Waiting for phtunnel API to be ready..."
-  sleep $WAIT_READY_SLEEP
+  sleep "$WAIT_READY_SLEEP"
 done
 
 # Watchdog loop
 while true; do
-  sleep $WATCHDOG_LOOP_SLEEP
+  sleep "$WATCHDOG_LOOP_SLEEP"
   log_info "Checking phtunnel API status..."
-  read_resp=$(curl -m $CURL_TIMEOUT -s -o /tmp/curl_result -w "%{http_code}" http://127.0.0.1:16062/ora_service/getsn)
-  curl_exit=$?
-  http_code="$read_resp"
-  response=$(cat /tmp/curl_result)
+  
+  response=""
+  http_code=""
+  curl_exit_code=0
+  has_failed=false
 
-  # If curl exit code is 28 (timeout) or non-zero, restart
-  if [[ "$curl_exit" == "28" ]]; then
-    log_error "curl timeout detected (exit code 28). Restarting add-on."
-    restart_addon
-    exit 1
-  elif [[ "$curl_exit" != "0" ]]; then
-    log_error "curl failed with exit code $curl_exit. Restarting add-on."
-    restart_addon
-    exit 1
+  if response=$(curl -m "$CURL_TIMEOUT" -s -w "%{http_code}" http://127.0.0.1:16062/ora_service/getsn); then
+    http_code="${response: -3}"
+    if [[ "$http_code" == "200" ]]; then
+      log_info "OK."
+    else
+      log_warning "Unexpected HTTP code $http_code from phtunnel API. Triggering restart."
+      has_failed=true
+    fi
+  else
+    curl_exit_code=$?
+    has_failed=true
   fi
 
-  # Optionally, check for non-200 HTTP code
-  if [[ "$http_code" == "200" ]]; then
-    log_info "OK."
-  else
-    log_warning "Unexpected HTTP code $http_code from phtunnel API."
+  # Centralized failure handling
+  if [[ "$has_failed" == true ]]; then
+    if [[ "$curl_exit_code" -eq 28 ]]; then
+      log_error "curl timeout detected (exit code 28). Restarting add-on."
+    elif [[ "$curl_exit_code" -ne 0 ]]; then
+      log_error "curl failed with exit code $curl_exit_code. Restarting add-on."
+    else 
+      log_error "API returned a non-200 HTTP code ($http_code). Restarting add-on."
+    fi
+
+    restart_addon
+    
+    # This prevents the restart loop.
+    log_info "Restart triggered. Watchdog is now idle, waiting for addon restart by Supervisor."
+    sleep 3600
   fi
 done
